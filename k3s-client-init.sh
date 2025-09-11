@@ -41,7 +41,7 @@ fi
 # -----k3s installation-----
 echo "Installing K3s..."
 HOSTNAME=$(hostname)
-CLUSTER_NAME=${HOSTNAME::-1}
+CLUSTER_NAME=$(echo "$HOSTNAME" | sed 's/[0-9]*$//')
 SERVER_IP=$(curl -s -X POST https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/d1/database/$DATABASE_ID/query \
     -H 'Content-Type: application/json' \
     -H "Authorization: Bearer $API_TOKEN" \
