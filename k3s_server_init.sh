@@ -9,14 +9,12 @@ echo "net.ipv4.tcp_congestion_control = bbr" | sudo tee -a /etc/sysctl.conf
 sudo sysctl -p
 lsmod | grep bbr
 sudo sysctl -a | grep tcp_congestion_control
-echo "BBR enabled"
 
 # -----ip_vs-----
 echo "Enabling IPVS..."
 sudo modprobe ip_vs
 echo "ip_vs" | sudo tee -a /etc/modules-load.d/ipvs.conf
 lsmod | grep ip_vs
-echo "IPVS enabled"
 
 # -----iptables-----
 echo "Setting up iptables rules..."
@@ -27,17 +25,25 @@ sudo iptables -I INPUT -p tcp --dport 6443 -j ACCEPT
 sudo iptables -I INPUT -p udp --dport 51820 -j ACCEPT
 sudo iptables -I INPUT -p udp --dport 51821 -j ACCEPT
 sudo iptables -I INPUT -p tcp --dport 10250 -j ACCEPT
+sudo iptables -I INPUT -s 10.42.0.0/16 -j ACCEPT
+sudo iptables -I INPUT -s 10.43.0.0/16 -j ACCEPT
 EOF
 sudo chmod +x /etc/rc.local
 sudo /etc/rc.local
-echo "Iptables rules set"
 
-# -----uninstall k3s-----
-k3s-uninstall.sh
+# -----uninstall previous k3s-----
+echo "Uninstalling previous K3s installation..."
+if command -v k3s >/dev/null 2>&1; then
+    k3s-uninstall.sh
+elif command -v k3s-agent >/dev/null 2>&1; then
+    k3s-agent-uninstall.sh
+echo "No K3s installation found"
+
 
 # -----k3s installation-----
 echo "Installing K3s..."
 export HOSTNAME=$(hostname)
+export IP=$(hostname -I | awk '{print $1}')
 export INSTALL_K3S_EXEC="server
 --tls-san $DOMAIN
 --write-kubeconfig /root/.kube/config
@@ -45,7 +51,6 @@ export INSTALL_K3S_EXEC="server
 --disable traefik,servicelb
 --kube-proxy-arg proxy-mode=ipvs
 "
-
 curl -sfL https://get.k3s.io | sh -
 
 # 获取并修改 kubeconfig
@@ -60,9 +65,10 @@ curl -X POST https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/d1/databa
     -H 'Content-Type: application/json' \
     -H "Authorization: Bearer $API_TOKEN" \
     -d '{
-          "sql": "INSERT OR REPLACE INTO config (cluster_name, config_content) VALUES (?, ?);",
+          "sql": "INSERT OR REPLACE INTO config (cluster_name, ip, content) VALUES (?, ?, ?);",
           "params": [
             "'$HOSTNAME'",
+            "'$IP'",
             "'$NEW_KUBECONFIG'"
           ]
         }'
