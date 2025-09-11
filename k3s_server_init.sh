@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set +x 
+k3s-uninstall.sh
 
 # -----bbr-----
 echo "Enabling BBR..."
