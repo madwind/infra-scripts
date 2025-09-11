@@ -32,17 +32,17 @@ sudo /etc/rc.local
 
 # -----uninstall previous k3s-----
 echo "Uninstalling previous K3s installation..."
-if command -v k3s >/dev/null 2>&1; then
+if [ -f /usr/local/bin/k3s-uninstall.sh ]; then
     k3s-uninstall.sh
-elif command -v k3s-agent >/dev/null 2>&1; then
+elif [ -f /usr/local/bin/k3s-agent-uninstall.sh ]; then
     k3s-agent-uninstall.sh
 fi
 
 # -----k3s installation-----
 echo "Installing K3s..."
-HOSTNAME=$(hostname)
-CLUSTER_NAME=$(echo "$HOSTNAME" | sed 's/[0-9]*$//')
-SERVER_IP=$(curl -s -X POST https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/d1/database/$DATABASE_ID/query \
+export HOSTNAME=$(hostname)
+export CLUSTER_NAME="${HOSTNAME%%[0-9]*}"
+export SERVER_IP=$(curl -s -X POST https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/d1/database/$DATABASE_ID/query \
     -H 'Content-Type: application/json' \
     -H "Authorization: Bearer $API_TOKEN" \
     -d '{
