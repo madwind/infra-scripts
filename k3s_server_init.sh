@@ -1,7 +1,5 @@
 #!/bin/bash
 
-k3s-uninstall.sh
-
 # -----bbr-----
 echo "Enabling BBR..."
 sudo sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
@@ -33,6 +31,9 @@ EOF
 sudo chmod +x /etc/rc.local
 sudo /etc/rc.local
 echo "Iptables rules set"
+
+# -----uninstall k3s-----
+k3s-uninstall.sh
 
 # -----k3s installation-----
 echo "Installing K3s..."
