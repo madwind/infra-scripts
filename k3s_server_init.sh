@@ -37,8 +37,7 @@ if command -v k3s >/dev/null 2>&1; then
     k3s-uninstall.sh
 elif command -v k3s-agent >/dev/null 2>&1; then
     k3s-agent-uninstall.sh
-echo "No K3s installation found"
-
+fi
 
 # -----k3s installation-----
 echo "Installing K3s..."
@@ -53,14 +52,12 @@ export INSTALL_K3S_EXEC="server
 "
 curl -sfL https://get.k3s.io | sh -
 
-# 获取并修改 kubeconfig
-echo "Modifying Kubeconfig..."
+# -----save k3s to d1n-----
+echo "Saving Kubeconfig to Cloudflare D1..."
 NEW_KUBECONFIG=$(sudo sed -e "s|server: https://127.0.0.1:6443|server: https://$DOMAIN:6443|" \
                         -e "s|default|$HOSTNAME|g" \
                         /root/.kube/config | base64 -w 0)
 
-# 将 kubeconfig 保存到 Cloudflare D1
-echo "Saving Kubeconfig to Cloudflare D1..."
 curl -X POST https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/d1/database/$DATABASE_ID/query \
     -H 'Content-Type: application/json' \
     -H "Authorization: Bearer $API_TOKEN" \
@@ -71,5 +68,5 @@ curl -X POST https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/d1/databa
             "'$IP'",
             "'$NEW_KUBECONFIG'"
           ]
-        }'
-echo "Kubeconfig saved to Cloudflare D1"
+        }' | jq
+echo "done."
