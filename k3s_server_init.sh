@@ -37,6 +37,7 @@ k3s-uninstall.sh
 
 # -----k3s installation-----
 echo "Installing K3s..."
+export HOSTNAME=$(hostname)
 export INSTALL_K3S_EXEC="server
 --tls-san $DOMAIN
 --write-kubeconfig /root/.kube/config
