@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set +x 
+
 # -----bbr-----
 echo "Enabling BBR..."
 sudo sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
