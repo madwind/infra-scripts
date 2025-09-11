@@ -33,9 +33,9 @@ sudo /etc/rc.local
 
 # -----uninstall previous k3s-----
 echo "Uninstalling previous K3s installation..."
-if command -v k3s >/dev/null 2>&1; then
+if [ -f /usr/local/bin/k3s-uninstall.sh ]; then
     k3s-uninstall.sh
-elif command -v k3s-agent >/dev/null 2>&1; then
+elif [ -f /usr/local/bin/k3s-agent-uninstall.sh ]; then
     k3s-agent-uninstall.sh
 fi
 
