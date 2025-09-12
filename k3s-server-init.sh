@@ -64,10 +64,9 @@ curl -X POST https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/d1/databa
     -H 'Content-Type: application/json' \
     -H "Authorization: Bearer $API_TOKEN" \
     -d '{
-          "sql": "INSERT OR REPLACE INTO config (cluster_name, ip, content) VALUES (?, ?, ?);",
+          "sql": "INSERT OR REPLACE INTO config (cluster_name, content) VALUES (?, ?);",
           "params": [
             "'$HOSTNAME'",
-            "'$IP'",
             "'$NEW_KUBECONFIG'"
           ]
         }' | jq
