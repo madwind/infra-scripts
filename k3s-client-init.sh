@@ -40,16 +40,7 @@ fi
 
 # -----k3s installation-----
 echo "Installing K3s..."
-export HOSTNAME=$(hostname)
-export CLUSTER_NAME="${HOSTNAME%%[0-9]*}"
-export SERVER_IP=$(curl -s -X POST https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/d1/database/$DATABASE_ID/query \
-    -H 'Content-Type: application/json' \
-    -H "Authorization: Bearer $API_TOKEN" \
-    -d '{
-          "sql": "SELECT ip FROM config WHERE cluster_name = ?;",
-          "params": ["'$CLUSTER_NAME'"]
-        }' | jq -r '.result[0].results[0].ip')
-export K3S_URL=https://${SERVER_IP}:6443
+export K3S_URL=https://${DOMAIN}:6443
 export INSTALL_K3S_EXEC="
 --kube-proxy-arg proxy-mode=ipvs
 "
