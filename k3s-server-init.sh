@@ -42,10 +42,12 @@ fi
 # -----k3s installation-----
 echo "Installing K3s..."
 export HOSTNAME=$(hostname)
-export IP=$(hostname -I | awk '{print $1}')
+export K3S_EXTERNAL_IP=`curl -4 ifconfig.me`
 export INSTALL_K3S_EXEC="server
 --tls-san $DOMAIN
 --write-kubeconfig /root/.kube/config
+--node-external-ip $K3S_EXTERNAL_IP
+--flannel-external-ip
 --flannel-backend wireguard-native
 --disable traefik,servicelb
 --kube-proxy-arg proxy-mode=ipvs
