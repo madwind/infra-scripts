@@ -2,8 +2,7 @@
 
 # -----bbr-----
 echo "Enabling BBR..."
-sudo sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
-sudo sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
+sudo sed -i '/^[a-zA-Z]/d' /etc/sysctl.conf
 echo "net.core.default_qdisc = fq" | sudo tee -a /etc/sysctl.conf
 echo "net.ipv4.tcp_congestion_control = bbr" | sudo tee -a /etc/sysctl.conf
 sudo sysctl -p
