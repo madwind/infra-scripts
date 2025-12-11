@@ -23,7 +23,6 @@ set -euo pipefail
 
 SSH_PORT=$(grep -i '^Port' /etc/ssh/sshd_config | awk '{print $2}' || true)
 SSH_PORT=${SSH_PORT:-22}
-echo "SSH_PORT=$SSH_PORT"
 
 add_rule() {
     if iptables -C INPUT "$@" 2>/dev/null; then
