@@ -19,13 +19,39 @@ lsmod | grep ip_vs
 echo "Setting up iptables rules..."
 sudo tee /etc/rc.local > /dev/null <<'EOF'
 #!/bin/bash
-sudo iptables -I INPUT -p tcp --dport 443 -j ACCEPT
-sudo iptables -I INPUT -p udp --dport 51820 -j ACCEPT
-sudo iptables -I INPUT -p udp --dport 51821 -j ACCEPT
-sudo iptables -I INPUT -p tcp --dport 10250 -j ACCEPT
-sudo iptables -I INPUT -s 10.42.0.0/16 -j ACCEPT
-sudo iptables -I INPUT -s 10.43.0.0/16 -j ACCEPT
+set -euo pipefail
+
+SSH_PORT=$(grep -i '^Port' /etc/ssh/sshd_config | awk '{print $2}' || true)
+SSH_PORT=${SSH_PORT:-22}
+
+add_rule() {
+    if iptables -C INPUT "$@" 2>/dev/null; then
+        echo "Rule exists: $*"
+    else
+        echo "Adding rule: $*"
+        iptables -I INPUT "$@"
+    fi
+}
+
+add_rule -p tcp --dport 443 -j ACCEPT
+add_rule -p udp --dport 51820 -j ACCEPT
+add_rule -p udp --dport 51821 -j ACCEPT
+add_rule -p tcp --dport 10250 -j ACCEPT
+add_rule -s 10.42.0.0/16 -j ACCEPT
+add_rule -s 10.43.0.0/16 -j ACCEPT
+add_rule -p tcp --dport "$SSH_PORT" -j ACCEPT
+
+add_rule -i lo -j ACCEPT
+add_rule -p icmp -j ACCEPT
+add_rule -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+if ! iptables -C INPUT -j REJECT --reject-with icmp-host-prohibited 2>/dev/null; then
+    iptables -A INPUT -j REJECT --reject-with icmp-host-prohibited
+fi
+
+exit 0
 EOF
+
 sudo chmod +x /etc/rc.local
 sudo /etc/rc.local
 
