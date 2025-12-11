@@ -23,28 +23,27 @@ set -euo pipefail
 
 SSH_PORT=$(grep -i '^Port' /etc/ssh/sshd_config | awk '{print $2}' || true)
 SSH_PORT=${SSH_PORT:-22}
+echo "SSH_PORT=$SSH_PORT"
 
 add_rule() {
     if iptables -C INPUT "$@" 2>/dev/null; then
         echo "Rule exists: $*"
     else
         echo "Adding rule: $*"
-        iptables -I INPUT "$@"
+        iptables -A INPUT "$@"
     fi
 }
 
-add_rule -p tcp --dport 443 -j ACCEPT
-add_rule -p tcp --dport 6443 -j ACCEPT
-add_rule -p udp --dport 51820 -j ACCEPT
-add_rule -p udp --dport 51821 -j ACCEPT
-add_rule -p tcp --dport 10250 -j ACCEPT
-add_rule -s 10.42.0.0/16 -j ACCEPT
 add_rule -s 10.43.0.0/16 -j ACCEPT
-add_rule -p tcp --dport "$SSH_PORT" -j ACCEPT
-
-add_rule -i lo -j ACCEPT
-add_rule -p icmp -j ACCEPT
+add_rule -s 10.42.0.0/16 -j ACCEPT
+add_rule -p tcp -m tcp --dport 10250 -j ACCEPT
+add_rule -p udp -m udp --dport 51821 -j ACCEPT
+add_rule -p udp -m udp --dport 51820 -j ACCEPT
+add_rule -p tcp -m tcp --dport 6443 -j ACCEPT
 add_rule -m state --state RELATED,ESTABLISHED -j ACCEPT
+add_rule -p icmp -j ACCEPT
+add_rule -i lo -j ACCEPT
+add_rule -p tcp -m state --state NEW -m tcp --dport "$SSH_PORT" -j ACCEPT
 
 if ! iptables -C INPUT -j REJECT --reject-with icmp-host-prohibited 2>/dev/null; then
     iptables -A INPUT -j REJECT --reject-with icmp-host-prohibited
