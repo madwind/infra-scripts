@@ -34,13 +34,13 @@ uninstall_previous_k3s
 
 # -----k3s installation-----
 echo "Installing K3s..."
-export K3S_URL=https://${DOMAIN}:6443
-export K3S_EXTERNAL_IP=$(curl -4 ifconfig.me)
-export INSTALL_K3S_EXEC="
+K3S_URL=https://${DOMAIN}:6443
+K3S_EXTERNAL_IP=$(curl -4 ifconfig.me)
+INSTALL_K3S_EXEC="
 --node-external-ip $K3S_EXTERNAL_IP
 --kube-proxy-arg proxy-mode=nftables
 "
-curl -sfL https://get.k3s.io | run_root env \
+curl -sfL https://get.k3s.io | env \
     K3S_URL="$K3S_URL" \
     K3S_TOKEN="$K3S_TOKEN" \
     INSTALL_K3S_EXEC="$INSTALL_K3S_EXEC" \
