@@ -310,7 +310,8 @@ EOF
     rm -f "$tmp"
 
     run_root systemctl daemon-reload
-    run_root systemctl enable --now infra-firewall.service
+    run_root systemctl enable infra-firewall.service
+    run_root systemctl restart infra-firewall.service
 
     echo "nftables firewall enabled."
     run_root nft list table inet infra_filter
