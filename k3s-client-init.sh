@@ -20,16 +20,58 @@ fi
 # shellcheck source=lib/common.sh
 source "$COMMON_SH"
 
+report_other_firewalls() {
+    local unit
+    local found=0
+
+    for unit in ufw firewalld nftables netfilter-persistent; do
+        if systemctl is-active --quiet "$unit.service" 2>/dev/null; then
+            echo "Warning: another firewall manager is active: $unit.service" >&2
+            found=1
+        fi
+    done
+
+    if command -v nft >/dev/null 2>&1; then
+        local hooks
+        hooks=$(nft list ruleset 2>/dev/null | awk '
+            /^table[[:space:]]/ { family=$2; table_name=$3 }
+            /^[[:space:]]*chain[[:space:]]/ { chain_name=$2 }
+            /hook input/ && !(family == "inet" && table_name == "infra_filter") {
+                print family " " table_name " / " chain_name
+            }
+        ' || true)
+
+        if [ -n "$hooks" ]; then
+            echo "Notice: additional nftables INPUT base chains are present:" >&2
+            printf '%s\n' "$hooks" | sed 's/^/  - /' >&2
+            found=1
+        fi
+    fi
+
+    if [ "$found" -eq 1 ]; then
+        echo "Notice: infra-scripts will not disable, flush, or modify those firewall owners." >&2
+    fi
+}
+
+cleanup_legacy_ipvs_config() {
+    local file=/etc/modules-load.d/ipvs.conf
+
+    if [ -f "$file" ] && [ "$(grep -v '^[[:space:]]*$' "$file" 2>/dev/null || true)" = "ip_vs" ]; then
+        run_root rm -f "$file"
+        echo "Removed legacy IPVS module-load configuration."
+    fi
+}
+
 # -----preflight-----
 preflight_require_root
 preflight_require_env DOMAIN K3S_TOKEN
-preflight_require_commands curl hostname sed awk grep install systemctl sysctl modprobe getent
+preflight_require_commands curl hostname sed awk grep install systemctl sysctl getent
 
 # -----host setup-----
 enable_bbr
-enable_ipvs
 setup_systemd_resolved_dot
 setup_nftables_firewall client
+report_other_firewalls
 
 # -----uninstall previous k3s-----
 uninstall_previous_k3s
@@ -40,7 +82,8 @@ export K3S_URL=https://${DOMAIN}:6443
 export K3S_EXTERNAL_IP=$(curl -4 ifconfig.me)
 export INSTALL_K3S_EXEC="
 --node-external-ip $K3S_EXTERNAL_IP
---kube-proxy-arg proxy-mode=ipvs
+--kube-proxy-arg proxy-mode=nftables
 "
 curl -sfL https://get.k3s.io | sh -
+cleanup_legacy_ipvs_config
 echo "done."
