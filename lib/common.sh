@@ -71,116 +71,58 @@ _install_systemd_resolved() {
 setup_systemd_resolved_dot() {
     echo "Configuring DNS-over-TLS..."
 
-    if ! command -v systemctl >/dev/null 2>&1; then
-        echo "Error: systemd is not available." >&2
-        return 1
-    fi
-
-    local resolv_backup=/etc/resolv.conf.before-systemd-resolved
     local dot_conf=/etc/systemd/resolved.conf.d/dot.conf
-    local old_dot
-    local old_resolv_dir
-    local had_old_dot=0
-    local had_old_resolv=0
-    local original_resolved_state
-    local original_resolved_active=0
-    local installed_resolved_now=0
+    local backup_dir
+    local dns_servers
+    local tmp
 
-    old_dot=$(mktemp)
-    old_resolv_dir=$(mktemp -d)
+    backup_dir=$(mktemp -d)
 
     if [ -f "$dot_conf" ]; then
-        cat "$dot_conf" >"$old_dot"
-        had_old_dot=1
+        cp "$dot_conf" "$backup_dir/dot.conf"
     fi
 
     if [ -e /etc/resolv.conf ] || [ -L /etc/resolv.conf ]; then
-        cp -a /etc/resolv.conf "$old_resolv_dir/resolv.conf"
-        had_old_resolv=1
-
-        if [ ! -e "$resolv_backup" ] && [ ! -L "$resolv_backup" ] \
-            && [ "$(readlink -f /etc/resolv.conf 2>/dev/null || true)" != "/run/systemd/resolve/stub-resolv.conf" ]; then
-            run_root cp -a /etc/resolv.conf "$resolv_backup"
-        fi
-    fi
-
-    original_resolved_state=$(systemctl is-enabled systemd-resolved.service 2>/dev/null || true)
-    if systemctl is-active --quiet systemd-resolved.service 2>/dev/null; then
-        original_resolved_active=1
+        cp -a /etc/resolv.conf "$backup_dir/resolv.conf"
     fi
 
     restore_resolved() {
-        if [ "$had_old_dot" -eq 1 ]; then
-            run_root install -D -m 0644 "$old_dot" "$dot_conf"
-        else
-            run_root rm -f "$dot_conf"
+        run_root rm -f "$dot_conf"
+        if [ -f "$backup_dir/dot.conf" ]; then
+            run_root install -D -m 0644 "$backup_dir/dot.conf" "$dot_conf"
         fi
 
         run_root rm -f /etc/resolv.conf
-        if [ "$had_old_resolv" -eq 1 ] && { [ -e "$old_resolv_dir/resolv.conf" ] || [ -L "$old_resolv_dir/resolv.conf" ]; }; then
-            run_root cp -a "$old_resolv_dir/resolv.conf" /etc/resolv.conf
+        if [ -e "$backup_dir/resolv.conf" ] || [ -L "$backup_dir/resolv.conf" ]; then
+            run_root cp -a "$backup_dir/resolv.conf" /etc/resolv.conf
         fi
 
-        run_root systemctl daemon-reload >/dev/null 2>&1 || true
-
-        if [ "$installed_resolved_now" -eq 1 ]; then
-            run_root systemctl disable --now systemd-resolved.service >/dev/null 2>&1 || true
-            if [ "$original_resolved_state" = masked ]; then
-                run_root systemctl mask systemd-resolved.service >/dev/null 2>&1 || true
-            fi
-            return 0
-        fi
-
-        if [ "$original_resolved_state" = masked ]; then
-            run_root systemctl stop systemd-resolved.service >/dev/null 2>&1 || true
-            run_root systemctl mask systemd-resolved.service >/dev/null 2>&1 || true
-        else
-            if [ "$original_resolved_state" = disabled ]; then
-                run_root systemctl disable systemd-resolved.service >/dev/null 2>&1 || true
-            fi
-
-            if [ "$original_resolved_active" -eq 1 ]; then
-                run_root systemctl restart systemd-resolved.service >/dev/null 2>&1 || true
-            else
-                run_root systemctl stop systemd-resolved.service >/dev/null 2>&1 || true
-            fi
-        fi
+        run_root systemctl restart systemd-resolved.service >/dev/null 2>&1 || true
     }
 
     if ! command -v resolvectl >/dev/null 2>&1; then
         if ! _install_systemd_resolved; then
             restore_resolved
-            rm -f "$old_dot"
-            rm -rf "$old_resolv_dir"
+            rm -rf "$backup_dir"
             return 1
         fi
-        installed_resolved_now=1
     fi
 
-    if ! command -v resolvectl >/dev/null 2>&1; then
-        echo "Error: resolvectl is unavailable after installing systemd-resolved." >&2
+    # Some VPS images mask systemd-resolved by default.
+    run_root systemctl unmask systemd-resolved.service >/dev/null 2>&1 || true
+    if ! run_root systemctl enable --now systemd-resolved.service; then
         restore_resolved
-        rm -f "$old_dot"
-        rm -rf "$old_resolv_dir"
+        rm -rf "$backup_dir"
         return 1
     fi
 
-    # Some VPS images, including some DMIT images, mask systemd-resolved.
-    run_root systemctl unmask systemd-resolved.service >/dev/null 2>&1 || true
-    run_root systemctl daemon-reload
-    run_root systemctl enable --now systemd-resolved.service
-
-    local dns_servers
     dns_servers="1.1.1.1#cloudflare-dns.com 1.0.0.1#cloudflare-dns.com 8.8.8.8#dns.google 8.8.4.4#dns.google"
 
-    # Add IPv6 resolvers when the host has a global IPv6 address and route.
-    if command -v ip >/dev/null 2>&1 \
-        && ip -6 addr show scope global | grep -q 'inet6 ' \
+    if ip -6 addr show scope global | grep -q 'inet6 ' \
         && ip -6 route get 2606:4700:4700::1111 >/dev/null 2>&1; then
         dns_servers="$dns_servers 2606:4700:4700::1111#cloudflare-dns.com 2606:4700:4700::1001#cloudflare-dns.com 2001:4860:4860::8888#dns.google 2001:4860:4860::8844#dns.google"
     fi
 
-    local tmp
     tmp=$(mktemp)
     cat >"$tmp" <<EOF_DOT
 [Resolve]
@@ -194,22 +136,18 @@ EOF_DOT
 
     run_root install -D -m 0644 "$tmp" "$dot_conf"
     rm -f "$tmp"
-    run_root systemctl restart systemd-resolved.service
 
-    if ! resolvectl status 2>/dev/null | sed -n '/^Global$/,/^Link /p' | grep -q '+DNSOverTLS'; then
-        echo "Error: this systemd-resolved build did not enable DNS-over-TLS." >&2
+    if ! run_root systemctl restart systemd-resolved.service; then
         restore_resolved
-        rm -f "$old_dot"
-        rm -rf "$old_resolv_dir"
+        rm -rf "$backup_dir"
         return 1
     fi
 
-    resolvectl flush-caches >/dev/null 2>&1 || true
-    if ! timeout 20 resolvectl query example.com >/dev/null 2>&1; then
+    if ! resolvectl status 2>/dev/null | sed -n '/^Global$/,/^Link /p' | grep -q '+DNSOverTLS' \
+        || ! timeout 20 resolvectl query example.com >/dev/null 2>&1; then
         echo "Error: DNS-over-TLS validation failed; restoring the previous resolver configuration." >&2
         restore_resolved
-        rm -f "$old_dot"
-        rm -rf "$old_resolv_dir"
+        rm -rf "$backup_dir"
         return 1
     fi
 
@@ -221,18 +159,14 @@ EOF_DOT
         run_root ln -s /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
     fi
 
-    run_root systemctl restart systemd-resolved.service
-
     if ! timeout 20 getent ahosts example.com >/dev/null 2>&1; then
-        echo "Error: system resolver validation failed; rolling back." >&2
+        echo "Error: system resolver validation failed; restoring the previous resolver configuration." >&2
         restore_resolved
-        rm -f "$old_dot"
-        rm -rf "$old_resolv_dir"
+        rm -rf "$backup_dir"
         return 1
     fi
 
-    rm -f "$old_dot"
-    rm -rf "$old_resolv_dir"
+    rm -rf "$backup_dir"
 
     echo "DNS-over-TLS enabled."
     resolvectl status | sed -n '1,14p'
