@@ -211,8 +211,8 @@ _migrate_legacy_iptables_firewall() {
     ssh_port=${ssh_port:-22}
     _remove_legacy_iptables_rule -p tcp -m state --state NEW -m tcp --dport "$ssh_port" -j ACCEPT
 
-    # Prevent the old rules from being re-added by rc.local on the next boot.
-    run_root sed -i '/^add_rule .* -j \(ACCEPT\|REJECT\)$/s/^/# migrated to nftables: /' "$rc_local"
+    # Prevent every old generated rule, including the final REJECT, from returning on reboot.
+    run_root sed -i '/^add_rule /s/^/# migrated to nftables: /' "$rc_local"
 }
 
 setup_nftables_firewall() {
@@ -259,7 +259,7 @@ setup_nftables_firewall() {
 # Managed by madwind/infra-scripts.
 table inet infra_filter {
     chain input {
-        type filter hook input priority filter; policy accept;
+        type filter hook input priority 0; policy accept;
 
         ct state established,related accept
         iifname "lo" accept
