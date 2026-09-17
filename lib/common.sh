@@ -13,6 +13,41 @@ run_root() {
     fi
 }
 
+preflight_require_root() {
+    if [ "$(id -u)" -ne 0 ] && ! command -v sudo >/dev/null 2>&1; then
+        echo "Error: run as root or install sudo." >&2
+        return 1
+    fi
+}
+
+preflight_require_env() {
+    local name
+    local missing=0
+
+    for name in "$@"; do
+        if [ -z "${!name:-}" ]; then
+            echo "Error: required environment variable is not set: $name" >&2
+            missing=1
+        fi
+    done
+
+    [ "$missing" -eq 0 ]
+}
+
+preflight_require_commands() {
+    local command_name
+    local missing=0
+
+    for command_name in "$@"; do
+        if ! command -v "$command_name" >/dev/null 2>&1; then
+            echo "Error: required command is not available: $command_name" >&2
+            missing=1
+        fi
+    done
+
+    [ "$missing" -eq 0 ]
+}
+
 _run_timeout() {
     local seconds=$1
     shift
@@ -90,6 +125,7 @@ setup_systemd_resolved_dot() {
     local had_old_resolv=0
     local original_resolved_state
     local original_resolved_active=0
+    local installed_resolved_now=0
 
     old_dot=$(mktemp)
     old_resolv_dir=$(mktemp -d)
@@ -128,6 +164,14 @@ setup_systemd_resolved_dot() {
 
         run_root systemctl daemon-reload >/dev/null 2>&1 || true
 
+        if [ "$installed_resolved_now" -eq 1 ]; then
+            run_root systemctl disable --now systemd-resolved.service >/dev/null 2>&1 || true
+            if [ "$original_resolved_state" = masked ]; then
+                run_root systemctl mask systemd-resolved.service >/dev/null 2>&1 || true
+            fi
+            return 0
+        fi
+
         if [ "$original_resolved_state" = masked ]; then
             run_root systemctl stop systemd-resolved.service >/dev/null 2>&1 || true
             run_root systemctl mask systemd-resolved.service >/dev/null 2>&1 || true
@@ -151,6 +195,7 @@ setup_systemd_resolved_dot() {
             rm -rf "$old_resolv_dir"
             return 1
         fi
+        installed_resolved_now=1
     fi
 
     if ! command -v resolvectl >/dev/null 2>&1; then
