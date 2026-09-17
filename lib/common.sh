@@ -96,14 +96,6 @@ EOF_BBR
     sysctl net.ipv4.tcp_congestion_control
 }
 
-enable_ipvs() {
-    echo "Enabling IPVS..."
-
-    run_root modprobe ip_vs
-    printf '%s\n' ip_vs | run_root tee /etc/modules-load.d/ipvs.conf >/dev/null
-    lsmod | grep '^ip_vs' || true
-}
-
 _install_systemd_resolved() {
     echo "Installing systemd-resolved..."
     _install_package systemd-resolved
