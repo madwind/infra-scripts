@@ -23,7 +23,9 @@ source "$COMMON_SH"
 # -----preflight-----
 preflight_require_root
 preflight_require_env DOMAIN ACCOUNT_ID DATABASE_ID API_TOKEN
-preflight_require_commands curl hostname sed awk grep install systemctl sysctl getent base64 jq
+if ! command -v jq >/dev/null 2>&1; then
+    _install_package jq
+fi
 
 # -----host setup-----
 enable_bbr
