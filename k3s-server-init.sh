@@ -2,8 +2,16 @@
 set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+COMMON_SH="$SCRIPT_DIR/lib/common.sh"
+
+if [ ! -f "$COMMON_SH" ]; then
+    COMMON_SH=$(mktemp)
+    trap 'rm -f "$COMMON_SH"' EXIT
+    curl -fsSL https://raw.githubusercontent.com/madwind/infra-scripts/main/lib/common.sh -o "$COMMON_SH"
+fi
+
 # shellcheck source=lib/common.sh
-source "$SCRIPT_DIR/lib/common.sh"
+source "$COMMON_SH"
 
 # -----host setup-----
 enable_bbr
