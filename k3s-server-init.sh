@@ -48,7 +48,9 @@ export INSTALL_K3S_EXEC="server
 --disable traefik,servicelb
 --kube-proxy-arg proxy-mode=nftables
 "
-curl -sfL https://get.k3s.io | sh -
+curl -sfL https://get.k3s.io | run_root env \
+    INSTALL_K3S_EXEC="$INSTALL_K3S_EXEC" \
+    sh -
 
 # -----save k3s to d1-----
 echo "Saving Kubeconfig to Cloudflare D1..."
