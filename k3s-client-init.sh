@@ -17,42 +17,7 @@ source "$COMMON_SH"
 enable_bbr
 enable_ipvs
 setup_systemd_resolved_dot
-
-# -----iptables-----
-echo "Setting up iptables rules..."
-sudo tee /etc/rc.local > /dev/null <<'EOF'
-#!/bin/bash
-set -euo pipefail
-
-SSH_PORT=$(grep -i '^Port' /etc/ssh/sshd_config | awk '{print $2}' || true)
-SSH_PORT=${SSH_PORT:-22}
-
-add_rule() {
-    if iptables -C INPUT "$@" 2>/dev/null; then
-        echo "Rule exists: $*"
-    else
-        echo "Inserting rule: $*"
-        iptables -I INPUT 1 "$@"
-    fi
-}
-
-add_rule -j REJECT --reject-with icmp-host-prohibited
-add_rule -p tcp -m state --state NEW -m tcp --dport "$SSH_PORT" -j ACCEPT
-add_rule -i lo -j ACCEPT
-add_rule -p icmp -j ACCEPT
-add_rule -m state --state RELATED,ESTABLISHED -j ACCEPT
-add_rule -p udp -m udp --dport 51820 -j ACCEPT
-add_rule -p udp -m udp --dport 51821 -j ACCEPT
-add_rule -p tcp -m tcp --dport 10250 -j ACCEPT
-add_rule -p tcp -m tcp --dport 443 -j ACCEPT
-add_rule -s 10.42.0.0/16 -j ACCEPT
-add_rule -s 10.43.0.0/16 -j ACCEPT
-
-exit 0
-EOF
-
-sudo chmod +x /etc/rc.local
-sudo /etc/rc.local
+setup_nftables_firewall client
 
 # -----uninstall previous k3s-----
 uninstall_previous_k3s
