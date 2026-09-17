@@ -54,24 +54,10 @@ report_other_firewalls() {
 }
 
 cleanup_legacy_ipvs_config() {
-    local file=/etc/modules-load.d/ipvs.conf
-    local tmp
-
-    if [ ! -f "$file" ] || ! grep -Eq '^[[:space:]]*ip_vs[[:space:]]*$' "$file"; then
-        return 0
+    if [ -e /etc/modules-load.d/ipvs.conf ]; then
+        run_root rm -f /etc/modules-load.d/ipvs.conf
+        echo "Removed legacy IPVS module-load configuration."
     fi
-
-    tmp=$(mktemp)
-    grep -Ev '^[[:space:]]*ip_vs[[:space:]]*$' "$file" >"$tmp" || true
-
-    if grep -q '[^[:space:]]' "$tmp"; then
-        run_root install -m 0644 "$tmp" "$file"
-    else
-        run_root rm -f "$file"
-    fi
-
-    rm -f "$tmp"
-    echo "Removed legacy IPVS module-load configuration."
 }
 
 # -----preflight-----
