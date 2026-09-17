@@ -1,19 +1,14 @@
 #!/bin/bash
+set -euo pipefail
 
-# -----bbr-----
-echo "Enabling BBR..."
-sudo sed -i '/^[a-zA-Z]/d' /etc/sysctl.conf
-echo "net.core.default_qdisc = fq" | sudo tee -a /etc/sysctl.conf
-echo "net.ipv4.tcp_congestion_control = bbr" | sudo tee -a /etc/sysctl.conf
-sudo sysctl -p
-lsmod | grep bbr
-sudo sysctl -a | grep tcp_congestion_control
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/common.sh
+source "$SCRIPT_DIR/lib/common.sh"
 
-# -----ip_vs-----
-echo "Enabling IPVS..."
-sudo modprobe ip_vs
-echo "ip_vs" | sudo tee -a /etc/modules-load.d/ipvs.conf
-lsmod | grep ip_vs
+# -----host setup-----
+enable_bbr
+enable_ipvs
+setup_systemd_resolved_dot
 
 # -----iptables-----
 echo "Setting up iptables rules..."
@@ -32,7 +27,6 @@ add_rule() {
         iptables -I INPUT 1 "$@"
     fi
 }
-
 
 add_rule -j REJECT --reject-with icmp-host-prohibited
 add_rule -p tcp -m state --state NEW -m tcp --dport "$SSH_PORT" -j ACCEPT
@@ -54,17 +48,12 @@ sudo chmod +x /etc/rc.local
 sudo /etc/rc.local
 
 # -----uninstall previous k3s-----
-echo "Uninstalling previous K3s installation..."
-if [ -f /usr/local/bin/k3s-uninstall.sh ]; then
-    k3s-uninstall.sh
-elif [ -f /usr/local/bin/k3s-agent-uninstall.sh ]; then
-    k3s-agent-uninstall.sh
-fi
+uninstall_previous_k3s
 
 # -----k3s installation-----
 echo "Installing K3s..."
 export HOSTNAME=$(hostname)
-export K3S_EXTERNAL_IP=`curl -4 ifconfig.me`
+export K3S_EXTERNAL_IP=$(curl -4 ifconfig.me)
 export INSTALL_K3S_EXEC="server
 --tls-san $DOMAIN
 --write-kubeconfig /root/.kube/config
@@ -76,7 +65,7 @@ export INSTALL_K3S_EXEC="server
 "
 curl -sfL https://get.k3s.io | sh -
 
-# -----save k3s to d1n-----
+# -----save k3s to d1-----
 echo "Saving Kubeconfig to Cloudflare D1..."
 NEW_KUBECONFIG=$(sudo sed -e "s|server: https://127.0.0.1:6443|server: https://$DOMAIN:6443|" \
                         -e "s|default|$HOSTNAME|g" \
