@@ -30,6 +30,9 @@ enable_bbr
 setup_systemd_resolved_dot
 setup_nftables_firewall client
 
+# -----uninstall previous k3s-----
+uninstall_previous_k3s
+
 # -----k3s installation-----
 echo "Installing K3s..."
 export K3S_URL=https://${DOMAIN}:6443
