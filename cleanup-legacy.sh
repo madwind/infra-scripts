@@ -37,6 +37,16 @@ fi
 run_root rm -f \
     /etc/systemd/system/infra-firewall.service \
     /etc/nftables.d/infra-scripts.nft
+
+# Stop the current infra-scripts iptables service before removing owned rules,
+# otherwise systemd would restore them on the next boot.
+if systemctl list-unit-files infra-iptables-firewall.service >/dev/null 2>&1; then
+    run_root systemctl disable --now infra-iptables-firewall.service >/dev/null 2>&1 || true
+fi
+
+run_root rm -f \
+    /etc/systemd/system/infra-iptables-firewall.service \
+    /usr/local/sbin/infra-iptables-firewall
 run_root systemctl daemon-reload
 
 # Older versions generated the whole rc.local file for iptables rules.
@@ -54,7 +64,7 @@ if [ -f /etc/rc.local ]; then
 fi
 
 # Current iptables rules are explicitly owned with a comment and can be
-# removed safely when a full cleanup is requested.
+# removed safely without touching provider- or K3s-owned rules.
 remove_owned_rules() {
     local command=$1
 
