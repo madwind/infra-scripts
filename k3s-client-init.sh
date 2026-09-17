@@ -27,7 +27,7 @@ preflight_require_env DOMAIN K3S_TOKEN
 # -----host setup-----
 enable_bbr
 setup_systemd_resolved_dot
-setup_nftables_firewall client
+setup_iptables_firewall client
 
 # -----uninstall previous k3s-----
 uninstall_previous_k3s

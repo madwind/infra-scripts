@@ -172,33 +172,7 @@ EOF_DOT
     resolvectl status | sed -n '1,14p'
 }
 
-_detect_ssh_port() {
-    local port=
-
-    # When run over SSH, the current connection is the safest source of truth.
-    if [ -n "${SSH_CONNECTION:-}" ]; then
-        port=${SSH_CONNECTION##* }
-    fi
-
-    if ! [[ "$port" =~ ^[0-9]+$ ]] && command -v sshd >/dev/null 2>&1; then
-        port=$(sshd -T 2>/dev/null | awk '$1 == "port" { print $2; exit }' || true)
-    fi
-
-    if ! [[ "$port" =~ ^[0-9]+$ ]]; then
-        port=$(grep -i '^Port[[:space:]]' /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | head -n1 || true)
-    fi
-
-    port=${port:-22}
-
-    if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
-        echo "Error: invalid SSH port: $port" >&2
-        return 1
-    fi
-
-    printf '%s\n' "$port"
-}
-
-setup_nftables_firewall() {
+setup_iptables_firewall() {
     local role=${1:-client}
     case "$role" in
         client|server) ;;
@@ -208,83 +182,105 @@ setup_nftables_firewall() {
             ;;
     esac
 
-    echo "Configuring nftables firewall ($role)..."
+    echo "Configuring iptables firewall ($role)..."
 
-    if ! command -v nft >/dev/null 2>&1; then
-        echo "Installing nftables..."
-        _install_package nftables
-    fi
-
-    if ! command -v nft >/dev/null 2>&1; then
-        echo "Error: nft is unavailable after installing nftables." >&2
+    if ! command -v iptables >/dev/null 2>&1; then
+        echo "Error: iptables is required but is not installed." >&2
         return 1
     fi
 
-    local ssh_port
-    ssh_port=$(_detect_ssh_port)
+    local firewall_script=/usr/local/sbin/infra-iptables-firewall
+    local service_file=/etc/systemd/system/infra-iptables-firewall.service
+    local tmp
 
-    local rules_file=/etc/nftables.d/infra-scripts.nft
-    local service_file=/etc/systemd/system/infra-firewall.service
-    local nft_bin
-    nft_bin=$(command -v nft)
-
-    local tmp check_tmp check_table
     tmp=$(mktemp)
-    cat >"$tmp" <<EOF_NFT
-# Managed by madwind/infra-scripts.
-table inet infra_filter {
-    chain input {
-        type filter hook input priority 0; policy accept;
+    cat >"$tmp" <<'EOF_FIREWALL'
+#!/bin/bash
+set -euo pipefail
 
-        ct state established,related accept
-        iifname "lo" accept
-        meta l4proto { icmp, ipv6-icmp } accept
+ROLE=${1:-client}
+case "$ROLE" in
+    client|server) ;;
+    *)
+        echo "Error: unknown firewall role: $ROLE" >&2
+        exit 1
+        ;;
+esac
 
-        tcp dport $ssh_port accept
-        udp dport { 51820, 51821 } accept
-        tcp dport { 443, 10250 } accept
-EOF_NFT
+SSH_PORT=
+if command -v sshd >/dev/null 2>&1; then
+    SSH_PORT=$(sshd -T 2>/dev/null | awk '$1 == "port" { print $2; exit }' || true)
+fi
+if ! [[ "$SSH_PORT" =~ ^[0-9]+$ ]]; then
+    SSH_PORT=$(grep -i '^Port[[:space:]]' /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | head -n1 || true)
+fi
+SSH_PORT=${SSH_PORT:-22}
 
-    if [ "$role" = server ]; then
-        echo '        tcp dport 6443 accept' >>"$tmp"
+if ! [[ "$SSH_PORT" =~ ^[0-9]+$ ]] || [ "$SSH_PORT" -lt 1 ] || [ "$SSH_PORT" -gt 65535 ]; then
+    echo "Error: invalid SSH port: $SSH_PORT" >&2
+    exit 1
+fi
+
+add_rule4() {
+    if iptables -C INPUT -m comment --comment infra-scripts "$@" >/dev/null 2>&1; then
+        return 0
     fi
-
-    cat >>"$tmp" <<'EOF_NFT'
-
-        ip saddr { 10.42.0.0/16, 10.43.0.0/16 } accept
-
-        reject with icmpx type admin-prohibited
-    }
+    iptables -I INPUT 1 -m comment --comment infra-scripts "$@"
 }
-EOF_NFT
 
-    # Check syntax and kernel feature support without touching the active table.
-    check_table="infra_filter_check_$$"
-    check_tmp=$(mktemp)
-    sed "s/table inet infra_filter/table inet $check_table/" "$tmp" >"$check_tmp"
-    if ! run_root "$nft_bin" -c -f "$check_tmp"; then
-        echo "Error: generated nftables rules are not supported by this host." >&2
-        rm -f "$tmp" "$check_tmp"
-        return 1
+# Insert the terminal rule first; later allow rules are inserted above it.
+add_rule4 -j REJECT --reject-with icmp-host-prohibited
+add_rule4 -p tcp -m conntrack --ctstate NEW --dport "$SSH_PORT" -j ACCEPT
+add_rule4 -i lo -j ACCEPT
+add_rule4 -p icmp -j ACCEPT
+add_rule4 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+add_rule4 -p udp --dport 51820 -j ACCEPT
+add_rule4 -p udp --dport 51821 -j ACCEPT
+add_rule4 -p tcp --dport 10250 -j ACCEPT
+if [ "$ROLE" = server ]; then
+    add_rule4 -p tcp --dport 6443 -j ACCEPT
+fi
+add_rule4 -p tcp --dport 443 -j ACCEPT
+add_rule4 -s 10.42.0.0/16 -j ACCEPT
+add_rule4 -s 10.43.0.0/16 -j ACCEPT
+
+# Keep IPv6 from becoming unfiltered on dual-stack VPS hosts.
+if command -v ip6tables >/dev/null 2>&1; then
+    add_rule6() {
+        if ip6tables -C INPUT -m comment --comment infra-scripts "$@" >/dev/null 2>&1; then
+            return 0
+        fi
+        ip6tables -I INPUT 1 -m comment --comment infra-scripts "$@"
+    }
+
+    add_rule6 -j REJECT
+    add_rule6 -p tcp -m conntrack --ctstate NEW --dport "$SSH_PORT" -j ACCEPT
+    add_rule6 -i lo -j ACCEPT
+    add_rule6 -p ipv6-icmp -j ACCEPT
+    add_rule6 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+    add_rule6 -p udp --dport 51820 -j ACCEPT
+    add_rule6 -p udp --dport 51821 -j ACCEPT
+    add_rule6 -p tcp --dport 10250 -j ACCEPT
+    if [ "$ROLE" = server ]; then
+        add_rule6 -p tcp --dport 6443 -j ACCEPT
     fi
-    rm -f "$check_tmp"
+    add_rule6 -p tcp --dport 443 -j ACCEPT
+fi
+EOF_FIREWALL
 
-    run_root install -D -m 0644 "$tmp" "$rules_file"
+    run_root install -m 0755 "$tmp" "$firewall_script"
     rm -f "$tmp"
 
     tmp=$(mktemp)
     cat >"$tmp" <<EOF_UNIT
 [Unit]
-Description=infra-scripts nftables firewall
-After=local-fs.target nftables.service
-Before=network-pre.target
-Wants=network-pre.target
+Description=infra-scripts iptables firewall
+After=local-fs.target netfilter-persistent.service ufw.service
+Before=k3s.service k3s-agent.service
 
 [Service]
 Type=oneshot
-ExecStartPre=-$nft_bin delete table inet infra_filter
-ExecStart=$nft_bin -f $rules_file
-ExecStop=-$nft_bin delete table inet infra_filter
+ExecStart=$firewall_script $role
 RemainAfterExit=yes
 
 [Install]
@@ -295,20 +291,14 @@ EOF_UNIT
     rm -f "$tmp"
 
     run_root systemctl daemon-reload
-    run_root systemctl reenable infra-firewall.service >/dev/null
+    run_root systemctl reenable infra-iptables-firewall.service >/dev/null
 
-    if ! run_root systemctl restart infra-firewall.service; then
-        echo "Error: failed to activate the nftables firewall." >&2
+    if ! run_root systemctl restart infra-iptables-firewall.service; then
+        echo "Error: failed to activate the iptables firewall." >&2
         return 1
     fi
 
-    if ! run_root "$nft_bin" list table inet infra_filter >/dev/null 2>&1; then
-        echo "Error: infra_filter table is not active after service restart." >&2
-        return 1
-    fi
-
-    echo "nftables firewall enabled."
-    run_root "$nft_bin" list table inet infra_filter
+    echo "iptables firewall enabled."
 }
 
 uninstall_previous_k3s() {

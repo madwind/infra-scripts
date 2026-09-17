@@ -30,7 +30,7 @@ fi
 # -----host setup-----
 enable_bbr
 setup_systemd_resolved_dot
-setup_nftables_firewall server
+setup_iptables_firewall server
 
 # -----uninstall previous k3s-----
 uninstall_previous_k3s
