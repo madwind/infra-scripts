@@ -20,6 +20,11 @@ fi
 # shellcheck source=lib/common.sh
 source "$COMMON_SH"
 
+# -----preflight-----
+preflight_require_root
+preflight_require_env DOMAIN K3S_TOKEN
+preflight_require_commands curl hostname sed awk grep install systemctl sysctl modprobe getent
+
 # -----host setup-----
 enable_bbr
 enable_ipvs
