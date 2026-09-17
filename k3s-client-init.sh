@@ -1,27 +1,7 @@
 #!/bin/bash
-
-SCRIPT_URL="https://raw.githubusercontent.com/madwind/infra-scripts/refs/heads/main/k3s-client-init.sh"
-COMMON_URL="https://raw.githubusercontent.com/madwind/infra-scripts/refs/heads/main/lib/common.sh"
-
-# Ubuntu /bin/sh is usually dash. When this script is piped to `sh`, restart it
-# under Bash before any Bash-only syntax is parsed.
-if [ -z "${BASH_VERSION:-}" ]; then
-    if ! command -v bash >/dev/null 2>&1; then
-        echo "Error: bash is required." >&2
-        exit 1
-    fi
-
-    if command -v curl >/dev/null 2>&1; then
-        exec bash -c "$(curl -fsSL "$SCRIPT_URL")" -- "$@"
-    elif command -v wget >/dev/null 2>&1; then
-        exec bash -c "$(wget -qO- "$SCRIPT_URL")" -- "$@"
-    else
-        echo "Error: curl or wget is required." >&2
-        exit 1
-    fi
-fi
-
 set -euo pipefail
+
+COMMON_URL="https://raw.githubusercontent.com/madwind/infra-scripts/refs/heads/main/lib/common.sh"
 
 COMMON_SH=""
 if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
