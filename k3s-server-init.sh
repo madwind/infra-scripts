@@ -37,9 +37,9 @@ uninstall_previous_k3s
 
 # -----k3s installation-----
 echo "Installing K3s..."
-export HOSTNAME=$(hostname)
-export K3S_EXTERNAL_IP=$(curl -4 ifconfig.me)
-export INSTALL_K3S_EXEC="server
+HOSTNAME=$(hostname)
+K3S_EXTERNAL_IP=$(curl -4 ifconfig.me)
+INSTALL_K3S_EXEC="server
 --tls-san $DOMAIN
 --write-kubeconfig /root/.kube/config
 --node-external-ip $K3S_EXTERNAL_IP
@@ -48,7 +48,7 @@ export INSTALL_K3S_EXEC="server
 --disable traefik,servicelb
 --kube-proxy-arg proxy-mode=nftables
 "
-curl -sfL https://get.k3s.io | run_root env \
+curl -sfL https://get.k3s.io | env \
     INSTALL_K3S_EXEC="$INSTALL_K3S_EXEC" \
     sh -
 
