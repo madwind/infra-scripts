@@ -40,5 +40,9 @@ export INSTALL_K3S_EXEC="
 --node-external-ip $K3S_EXTERNAL_IP
 --kube-proxy-arg proxy-mode=nftables
 "
-curl -sfL https://get.k3s.io | sh -
+curl -sfL https://get.k3s.io | run_root env \
+    K3S_URL="$K3S_URL" \
+    K3S_TOKEN="$K3S_TOKEN" \
+    INSTALL_K3S_EXEC="$INSTALL_K3S_EXEC" \
+    sh -
 echo "done."
