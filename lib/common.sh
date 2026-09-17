@@ -34,48 +34,15 @@ preflight_require_env() {
     [ "$missing" -eq 0 ]
 }
 
-preflight_require_commands() {
-    local command_name
-    local missing=0
-
-    for command_name in "$@"; do
-        if ! command -v "$command_name" >/dev/null 2>&1; then
-            echo "Error: required command is not available: $command_name" >&2
-            missing=1
-        fi
-    done
-
-    [ "$missing" -eq 0 ]
-}
-
-_run_timeout() {
-    local seconds=$1
-    shift
-
-    if command -v timeout >/dev/null 2>&1; then
-        timeout "$seconds" "$@"
-    else
-        "$@"
-    fi
-}
-
 _install_package() {
     local package=$1
 
-    if command -v apt-get >/dev/null 2>&1; then
-        if [ "$_APT_UPDATED" -eq 0 ]; then
-            run_root env DEBIAN_FRONTEND=noninteractive apt-get update
-            _APT_UPDATED=1
-        fi
-        run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "$package"
-    elif command -v dnf >/dev/null 2>&1; then
-        run_root dnf install -y "$package"
-    elif command -v yum >/dev/null 2>&1; then
-        run_root yum install -y "$package"
-    else
-        echo "Error: $package is not installed and no supported package manager was found." >&2
-        return 1
+    if [ "$_APT_UPDATED" -eq 0 ]; then
+        run_root env DEBIAN_FRONTEND=noninteractive apt-get update
+        _APT_UPDATED=1
     fi
+
+    run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "$package"
 }
 
 enable_bbr() {
@@ -238,7 +205,7 @@ EOF_DOT
     fi
 
     resolvectl flush-caches >/dev/null 2>&1 || true
-    if ! _run_timeout 20 resolvectl query example.com >/dev/null 2>&1; then
+    if ! timeout 20 resolvectl query example.com >/dev/null 2>&1; then
         echo "Error: DNS-over-TLS validation failed; restoring the previous resolver configuration." >&2
         restore_resolved
         rm -f "$old_dot"
@@ -256,7 +223,7 @@ EOF_DOT
 
     run_root systemctl restart systemd-resolved.service
 
-    if ! _run_timeout 20 getent ahosts example.com >/dev/null 2>&1; then
+    if ! timeout 20 getent ahosts example.com >/dev/null 2>&1; then
         echo "Error: system resolver validation failed; rolling back." >&2
         restore_resolved
         rm -f "$old_dot"
