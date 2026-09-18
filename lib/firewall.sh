@@ -63,50 +63,77 @@ if ! valid_port "$SSH_PORT"; then
     exit 1
 fi
 
-add_rule4() {
-    if iptables -C INPUT -m comment --comment infra-scripts "$@" >/dev/null 2>&1; then
-        return 0
-    fi
-    iptables -I INPUT 1 -m comment --comment infra-scripts "$@"
+remove_legacy_rules() {
+    command_name=$1
+
+    while true; do
+        rule=$($command_name -w 5 -S INPUT 2>/dev/null \
+            | grep -- '--comment infra-scripts' \
+            | grep -v -- '-j INFRA-INPUT' \
+            | head -n1 || true)
+        [ -n "$rule" ] || break
+        rule=${rule#-A INPUT }
+        # shellcheck disable=SC2086
+        $command_name -w 5 -D INPUT $rule
+    done
 }
 
-# Insert the terminal rule first; later allow rules are inserted above it.
-add_rule4 -j REJECT --reject-with icmp-host-prohibited
-add_rule4 -p tcp -m conntrack --ctstate NEW --dport "$SSH_PORT" -j ACCEPT
-add_rule4 -i lo -j ACCEPT
-add_rule4 -p icmp -j ACCEPT
-add_rule4 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-add_rule4 -p udp --dport 51820 -j ACCEPT
-add_rule4 -p udp --dport 51821 -j ACCEPT
-add_rule4 -p tcp --dport 10250 -j ACCEPT
-if [ "$ROLE" = server ]; then
-    add_rule4 -p tcp --dport 6443 -j ACCEPT
-fi
-add_rule4 -p tcp --dport 443 -j ACCEPT
-add_rule4 -s 10.42.0.0/16 -j ACCEPT
-add_rule4 -s 10.43.0.0/16 -j ACCEPT
+configure_ipv4() {
+    iptables -w 5 -N INFRA-INPUT 2>/dev/null || true
+    iptables -w 5 -F INFRA-INPUT
 
-# Keep IPv6 from becoming unfiltered on dual-stack VPS hosts.
-if command -v ip6tables >/dev/null 2>&1; then
-    add_rule6() {
-        if ip6tables -C INPUT -m comment --comment infra-scripts "$@" >/dev/null 2>&1; then
-            return 0
-        fi
-        ip6tables -I INPUT 1 -m comment --comment infra-scripts "$@"
-    }
-
-    add_rule6 -j REJECT
-    add_rule6 -p tcp -m conntrack --ctstate NEW --dport "$SSH_PORT" -j ACCEPT
-    add_rule6 -i lo -j ACCEPT
-    add_rule6 -p ipv6-icmp -j ACCEPT
-    add_rule6 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-    add_rule6 -p udp --dport 51820 -j ACCEPT
-    add_rule6 -p udp --dport 51821 -j ACCEPT
-    add_rule6 -p tcp --dport 10250 -j ACCEPT
+    iptables -w 5 -A INFRA-INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+    iptables -w 5 -A INFRA-INPUT -p icmp -j ACCEPT
+    iptables -w 5 -A INFRA-INPUT -i lo -j ACCEPT
+    iptables -w 5 -A INFRA-INPUT -p tcp -m conntrack --ctstate NEW --dport "$SSH_PORT" -j ACCEPT
+    iptables -w 5 -A INFRA-INPUT -p udp --dport 51820 -j ACCEPT
+    iptables -w 5 -A INFRA-INPUT -p udp --dport 51821 -j ACCEPT
+    iptables -w 5 -A INFRA-INPUT -p tcp --dport 10250 -j ACCEPT
     if [ "$ROLE" = server ]; then
-        add_rule6 -p tcp --dport 6443 -j ACCEPT
+        iptables -w 5 -A INFRA-INPUT -p tcp --dport 6443 -j ACCEPT
     fi
-    add_rule6 -p tcp --dport 443 -j ACCEPT
+    iptables -w 5 -A INFRA-INPUT -p tcp --dport 443 -j ACCEPT
+    iptables -w 5 -A INFRA-INPUT -s 10.42.0.0/16 -j ACCEPT
+    iptables -w 5 -A INFRA-INPUT -s 10.43.0.0/16 -j ACCEPT
+    iptables -w 5 -A INFRA-INPUT -j REJECT --reject-with icmp-host-prohibited
+
+    while iptables -w 5 -C INPUT -m comment --comment infra-scripts -j INFRA-INPUT >/dev/null 2>&1; do
+        iptables -w 5 -D INPUT -m comment --comment infra-scripts -j INFRA-INPUT
+    done
+    iptables -w 5 -I INPUT 1 -m comment --comment infra-scripts -j INFRA-INPUT
+
+    # Migrate rules created by older versions only after the new chain is active.
+    remove_legacy_rules iptables
+}
+
+configure_ipv6() {
+    ip6tables -w 5 -N INFRA-INPUT 2>/dev/null || true
+    ip6tables -w 5 -F INFRA-INPUT
+
+    ip6tables -w 5 -A INFRA-INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+    ip6tables -w 5 -A INFRA-INPUT -p ipv6-icmp -j ACCEPT
+    ip6tables -w 5 -A INFRA-INPUT -i lo -j ACCEPT
+    ip6tables -w 5 -A INFRA-INPUT -p tcp -m conntrack --ctstate NEW --dport "$SSH_PORT" -j ACCEPT
+    ip6tables -w 5 -A INFRA-INPUT -p udp --dport 51820 -j ACCEPT
+    ip6tables -w 5 -A INFRA-INPUT -p udp --dport 51821 -j ACCEPT
+    ip6tables -w 5 -A INFRA-INPUT -p tcp --dport 10250 -j ACCEPT
+    if [ "$ROLE" = server ]; then
+        ip6tables -w 5 -A INFRA-INPUT -p tcp --dport 6443 -j ACCEPT
+    fi
+    ip6tables -w 5 -A INFRA-INPUT -p tcp --dport 443 -j ACCEPT
+    ip6tables -w 5 -A INFRA-INPUT -j REJECT
+
+    while ip6tables -w 5 -C INPUT -m comment --comment infra-scripts -j INFRA-INPUT >/dev/null 2>&1; do
+        ip6tables -w 5 -D INPUT -m comment --comment infra-scripts -j INFRA-INPUT
+    done
+    ip6tables -w 5 -I INPUT 1 -m comment --comment infra-scripts -j INFRA-INPUT
+
+    remove_legacy_rules ip6tables
+}
+
+configure_ipv4
+if command -v ip6tables >/dev/null 2>&1; then
+    configure_ipv6
 fi
 EOF_FIREWALL
 
