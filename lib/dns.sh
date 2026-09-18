@@ -128,7 +128,9 @@ EOF_ADDRESS_SCRIPT
     cat >"$unit_tmp" <<EOF_ADDRESS_UNIT
 [Unit]
 Description=infra-scripts node-local service address
-Before=systemd-resolved.service k3s.service k3s-agent.service
+DefaultDependencies=no
+After=systemd-sysctl.service
+Before=systemd-resolved.service sysinit.target k3s.service k3s-agent.service
 
 [Service]
 Type=oneshot
@@ -136,19 +138,15 @@ ExecStart=$address_script
 RemainAfterExit=yes
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=sysinit.target
 EOF_ADDRESS_UNIT
     run_root install -m 0644 "$unit_tmp" "$address_service"
     rm -f "$unit_tmp"
 
-    resolved_tmp=$(mktemp)
-    cat >"$resolved_tmp" <<'EOF_RESOLVED_UNIT'
-[Unit]
-Requires=infra-node-local-address.service
-After=infra-node-local-address.service
-EOF_RESOLVED_UNIT
-    run_root install -D -m 0644 "$resolved_tmp" "$resolved_dropin"
-    rm -f "$resolved_tmp"
+    # Older versions made systemd-resolved depend on this service, which can
+    # create an early-boot dependency cycle. The address service now starts
+    # independently before systemd-resolved.
+    run_root rm -f "$resolved_dropin"
 
     listener_tmp=$(mktemp)
     cat >"$listener_tmp" <<EOF_LISTENER
