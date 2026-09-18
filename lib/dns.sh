@@ -108,7 +108,7 @@ EOF_DOT
 setup_pod_system_dns() {
     echo "Configuring Pod access to the node system resolver..."
 
-    pod_dns_ip=${POD_SYSTEM_DNS_IP:-169.254.20.10}
+    pod_dns_ip=${POD_SYSTEM_DNS_IP:-10.254.254.54}
     address_script=/usr/local/sbin/infra-node-local-address.sh
     address_service=/etc/systemd/system/infra-node-local-address.service
     resolved_dropin=/etc/systemd/system/systemd-resolved.service.d/infra-node-local-address.conf
@@ -119,6 +119,7 @@ setup_pod_system_dns() {
 #!/bin/sh
 set -eu
 
+ip address del 169.254.20.10/32 dev lo >/dev/null 2>&1 || true
 ip address replace $pod_dns_ip/32 dev lo
 EOF_ADDRESS_SCRIPT
     run_root install -m 0755 "$address_tmp" "$address_script"
