@@ -63,13 +63,14 @@ if ! valid_port "$SSH_PORT"; then
     exit 1
 fi
 
-remove_legacy_rules() {
+remove_old_input_rules() {
     command_name=$1
+    keep_chain=$2
 
     while true; do
         rule=$($command_name -w 5 -S INPUT 2>/dev/null \
             | grep -- '--comment infra-scripts' \
-            | grep -v -- '-j INFRA-INPUT' \
+            | grep -v -- "-j $keep_chain" \
             | head -n1 || true)
         [ -n "$rule" ] || break
         rule=${rule#-A INPUT }
@@ -78,57 +79,63 @@ remove_legacy_rules() {
     done
 }
 
-configure_ipv4() {
-    iptables -w 5 -N INFRA-INPUT 2>/dev/null || true
-    iptables -w 5 -F INFRA-INPUT
+remove_stale_chains() {
+    command_name=$1
+    keep_chain=$2
 
-    iptables -w 5 -A INFRA-INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-    iptables -w 5 -A INFRA-INPUT -p icmp -j ACCEPT
-    iptables -w 5 -A INFRA-INPUT -i lo -j ACCEPT
-    iptables -w 5 -A INFRA-INPUT -p tcp -m conntrack --ctstate NEW --dport "$SSH_PORT" -j ACCEPT
-    iptables -w 5 -A INFRA-INPUT -p udp --dport 51820 -j ACCEPT
-    iptables -w 5 -A INFRA-INPUT -p udp --dport 51821 -j ACCEPT
-    iptables -w 5 -A INFRA-INPUT -p tcp --dport 10250 -j ACCEPT
-    if [ "$ROLE" = server ]; then
-        iptables -w 5 -A INFRA-INPUT -p tcp --dport 6443 -j ACCEPT
-    fi
-    iptables -w 5 -A INFRA-INPUT -p tcp --dport 443 -j ACCEPT
-    iptables -w 5 -A INFRA-INPUT -s 10.42.0.0/16 -j ACCEPT
-    iptables -w 5 -A INFRA-INPUT -s 10.43.0.0/16 -j ACCEPT
-    iptables -w 5 -A INFRA-INPUT -j REJECT --reject-with icmp-host-prohibited
-
-    while iptables -w 5 -C INPUT -m comment --comment infra-scripts -j INFRA-INPUT >/dev/null 2>&1; do
-        iptables -w 5 -D INPUT -m comment --comment infra-scripts -j INFRA-INPUT
+    for chain in $($command_name -w 5 -S 2>/dev/null \
+        | awk '$1 == "-N" && ($2 == "INFRA-INPUT" || $2 ~ /^INFRA-INPUT-/) { print $2 }'); do
+        [ "$chain" = "$keep_chain" ] && continue
+        $command_name -w 5 -F "$chain" >/dev/null 2>&1 || true
+        $command_name -w 5 -X "$chain" >/dev/null 2>&1 || true
     done
-    iptables -w 5 -I INPUT 1 -m comment --comment infra-scripts -j INFRA-INPUT
+}
 
-    # Migrate rules created by older versions only after the new chain is active.
-    remove_legacy_rules iptables
+configure_ipv4() {
+    new_chain="INFRA-INPUT-$$"
+    iptables -w 5 -N "$new_chain"
+
+    iptables -w 5 -A "$new_chain" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+    iptables -w 5 -A "$new_chain" -p icmp -j ACCEPT
+    iptables -w 5 -A "$new_chain" -i lo -j ACCEPT
+    iptables -w 5 -A "$new_chain" -p tcp -m conntrack --ctstate NEW --dport "$SSH_PORT" -j ACCEPT
+    iptables -w 5 -A "$new_chain" -p udp --dport 51820 -j ACCEPT
+    iptables -w 5 -A "$new_chain" -p udp --dport 51821 -j ACCEPT
+    iptables -w 5 -A "$new_chain" -p tcp --dport 10250 -j ACCEPT
+    if [ "$ROLE" = server ]; then
+        iptables -w 5 -A "$new_chain" -p tcp --dport 6443 -j ACCEPT
+    fi
+    iptables -w 5 -A "$new_chain" -p tcp --dport 443 -j ACCEPT
+    iptables -w 5 -A "$new_chain" -s 10.42.0.0/16 -j ACCEPT
+    iptables -w 5 -A "$new_chain" -s 10.43.0.0/16 -j ACCEPT
+    iptables -w 5 -A "$new_chain" -j REJECT --reject-with icmp-host-prohibited
+
+    # The complete replacement chain is built before traffic is switched to it.
+    iptables -w 5 -I INPUT 1 -m comment --comment infra-scripts -j "$new_chain"
+    remove_old_input_rules iptables "$new_chain"
+    remove_stale_chains iptables "$new_chain"
 }
 
 configure_ipv6() {
-    ip6tables -w 5 -N INFRA-INPUT 2>/dev/null || true
-    ip6tables -w 5 -F INFRA-INPUT
+    new_chain="INFRA-INPUT-$$"
+    ip6tables -w 5 -N "$new_chain"
 
-    ip6tables -w 5 -A INFRA-INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-    ip6tables -w 5 -A INFRA-INPUT -p ipv6-icmp -j ACCEPT
-    ip6tables -w 5 -A INFRA-INPUT -i lo -j ACCEPT
-    ip6tables -w 5 -A INFRA-INPUT -p tcp -m conntrack --ctstate NEW --dport "$SSH_PORT" -j ACCEPT
-    ip6tables -w 5 -A INFRA-INPUT -p udp --dport 51820 -j ACCEPT
-    ip6tables -w 5 -A INFRA-INPUT -p udp --dport 51821 -j ACCEPT
-    ip6tables -w 5 -A INFRA-INPUT -p tcp --dport 10250 -j ACCEPT
+    ip6tables -w 5 -A "$new_chain" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+    ip6tables -w 5 -A "$new_chain" -p ipv6-icmp -j ACCEPT
+    ip6tables -w 5 -A "$new_chain" -i lo -j ACCEPT
+    ip6tables -w 5 -A "$new_chain" -p tcp -m conntrack --ctstate NEW --dport "$SSH_PORT" -j ACCEPT
+    ip6tables -w 5 -A "$new_chain" -p udp --dport 51820 -j ACCEPT
+    ip6tables -w 5 -A "$new_chain" -p udp --dport 51821 -j ACCEPT
+    ip6tables -w 5 -A "$new_chain" -p tcp --dport 10250 -j ACCEPT
     if [ "$ROLE" = server ]; then
-        ip6tables -w 5 -A INFRA-INPUT -p tcp --dport 6443 -j ACCEPT
+        ip6tables -w 5 -A "$new_chain" -p tcp --dport 6443 -j ACCEPT
     fi
-    ip6tables -w 5 -A INFRA-INPUT -p tcp --dport 443 -j ACCEPT
-    ip6tables -w 5 -A INFRA-INPUT -j REJECT
+    ip6tables -w 5 -A "$new_chain" -p tcp --dport 443 -j ACCEPT
+    ip6tables -w 5 -A "$new_chain" -j REJECT
 
-    while ip6tables -w 5 -C INPUT -m comment --comment infra-scripts -j INFRA-INPUT >/dev/null 2>&1; do
-        ip6tables -w 5 -D INPUT -m comment --comment infra-scripts -j INFRA-INPUT
-    done
-    ip6tables -w 5 -I INPUT 1 -m comment --comment infra-scripts -j INFRA-INPUT
-
-    remove_legacy_rules ip6tables
+    ip6tables -w 5 -I INPUT 1 -m comment --comment infra-scripts -j "$new_chain"
+    remove_old_input_rules ip6tables "$new_chain"
+    remove_stale_chains ip6tables "$new_chain"
 }
 
 configure_ipv4
