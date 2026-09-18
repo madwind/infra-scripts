@@ -32,6 +32,7 @@ if systemctl list-unit-files infra-node-local-address.service >/dev/null 2>&1; t
 fi
 
 run_root ip address del 169.254.20.10/32 dev lo >/dev/null 2>&1 || true
+run_root ip address del 10.254.254.54/32 dev lo >/dev/null 2>&1 || true
 run_root rm -f \
     /etc/systemd/system/infra-node-local-address.service \
     /usr/local/sbin/infra-node-local-address.sh \
