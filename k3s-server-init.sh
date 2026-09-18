@@ -1,24 +1,28 @@
-#!/bin/bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
 COMMON_URL="https://raw.githubusercontent.com/madwind/infra-scripts/refs/heads/main/lib/common.sh"
 
-COMMON_SH=""
-if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
-    SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+COMMON_SH=
+INFRA_LIB_DIR=
+if [ -f "$0" ]; then
+    SCRIPT_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
     if [ -f "$SCRIPT_DIR/lib/common.sh" ]; then
         COMMON_SH="$SCRIPT_DIR/lib/common.sh"
+        INFRA_LIB_DIR="$SCRIPT_DIR/lib"
+        export INFRA_LIB_DIR
     fi
 fi
 
 if [ -z "$COMMON_SH" ]; then
     COMMON_SH=$(mktemp)
-    trap 'rm -f "$COMMON_SH"' EXIT
+    trap 'rm -f "$COMMON_SH"' 0
     curl -fsSL "$COMMON_URL" -o "$COMMON_SH"
 fi
 
 # shellcheck source=lib/common.sh
-source "$COMMON_SH"
+. "$COMMON_SH"
+load_infra_modules system dns firewall k3s
 
 # -----preflight-----
 preflight_require_root
@@ -58,7 +62,7 @@ NEW_KUBECONFIG=$(run_root sed -e "s|server: https://127.0.0.1:6443|server: https
                            -e "s|default|$HOSTNAME|g" \
                            /root/.kube/config | base64 -w 0)
 
-curl -X POST https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/d1/database/$DATABASE_ID/query \
+curl -X POST "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/d1/database/$DATABASE_ID/query" \
     -H 'Content-Type: application/json' \
     -H "Authorization: Bearer $API_TOKEN" \
     -d '{
