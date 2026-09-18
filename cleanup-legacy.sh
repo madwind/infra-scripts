@@ -23,6 +23,20 @@ run_root rm -f \
     /etc/modules-load.d/ipvs.conf \
     /etc/resolv.conf.before-systemd-resolved
 
+# Remove the node-local address used to expose systemd-resolved to Pods.
+if systemctl list-unit-files infra-node-local-address.service >/dev/null 2>&1; then
+    run_root systemctl disable --now infra-node-local-address.service >/dev/null 2>&1 || true
+fi
+
+run_root ip address del 169.254.20.10/32 dev lo >/dev/null 2>&1 || true
+run_root rm -f \
+    /etc/systemd/system/infra-node-local-address.service \
+    /usr/local/sbin/infra-node-local-address.sh \
+    /etc/systemd/system/systemd-resolved.service.d/infra-node-local-address.conf \
+    /etc/systemd/resolved.conf.d/pod-system-dns.conf
+run_root systemctl daemon-reload
+run_root systemctl restart systemd-resolved.service >/dev/null 2>&1 || true
+
 # Remove the nftables firewall previously created by infra-scripts.
 if systemctl list-unit-files infra-firewall.service >/dev/null 2>&1; then
     run_root systemctl disable --now infra-firewall.service >/dev/null 2>&1 || true
