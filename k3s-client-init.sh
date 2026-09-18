@@ -34,20 +34,34 @@ setup_systemd_resolved_dot
 setup_pod_system_dns
 setup_iptables_firewall client
 
+# -----prepare k3s installation-----
+K3S_URL=https://${DOMAIN}:6443
+K3S_EXTERNAL_IP=$(get_external_ipv4)
+K3S_INSTALLER=$(mktemp)
+if ! download_k3s_installer "$K3S_INSTALLER"; then
+    rm -f "$K3S_INSTALLER"
+    exit 1
+fi
+
 # -----uninstall previous k3s-----
-uninstall_previous_k3s
+if ! uninstall_previous_k3s; then
+    rm -f "$K3S_INSTALLER"
+    exit 1
+fi
 
 # -----k3s installation-----
 echo "Installing K3s..."
-K3S_URL=https://${DOMAIN}:6443
-K3S_EXTERNAL_IP=$(curl -4 ifconfig.me)
 INSTALL_K3S_EXEC="
 --node-external-ip $K3S_EXTERNAL_IP
 --kube-proxy-arg proxy-mode=nftables
 "
-curl -sfL https://get.k3s.io | env \
+if ! env \
     K3S_URL="$K3S_URL" \
     K3S_TOKEN="$K3S_TOKEN" \
     INSTALL_K3S_EXEC="$INSTALL_K3S_EXEC" \
-    sh -
+    sh "$K3S_INSTALLER"; then
+    rm -f "$K3S_INSTALLER"
+    exit 1
+fi
+rm -f "$K3S_INSTALLER"
 echo "done."
