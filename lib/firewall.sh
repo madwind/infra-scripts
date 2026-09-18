@@ -13,7 +13,15 @@ setup_iptables_firewall() {
     echo "Configuring iptables firewall ($role)..."
 
     if ! command -v iptables >/dev/null 2>&1; then
-        echo "Error: iptables is required but is not installed." >&2
+        echo "iptables not found; installing..."
+        if ! _install_package iptables; then
+            echo "Error: failed to install iptables." >&2
+            return 1
+        fi
+    fi
+
+    if ! command -v iptables >/dev/null 2>&1; then
+        echo "Error: iptables is still unavailable after installation." >&2
         return 1
     fi
 
