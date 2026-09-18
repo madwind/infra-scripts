@@ -104,3 +104,74 @@ EOF_DOT
     echo "DNS-over-TLS enabled."
     resolvectl status | sed -n '1,14p'
 }
+
+setup_pod_system_dns() {
+    echo "Configuring Pod access to the node system resolver..."
+
+    pod_dns_ip=${POD_SYSTEM_DNS_IP:-169.254.20.10}
+    address_script=/usr/local/sbin/infra-node-local-address.sh
+    address_service=/etc/systemd/system/infra-node-local-address.service
+    resolved_dropin=/etc/systemd/system/systemd-resolved.service.d/infra-node-local-address.conf
+    listener_conf=/etc/systemd/resolved.conf.d/pod-system-dns.conf
+
+    address_tmp=$(mktemp)
+    cat >"$address_tmp" <<EOF_ADDRESS_SCRIPT
+#!/bin/sh
+set -eu
+
+ip address replace $pod_dns_ip/32 dev lo
+EOF_ADDRESS_SCRIPT
+    run_root install -m 0755 "$address_tmp" "$address_script"
+    rm -f "$address_tmp"
+
+    unit_tmp=$(mktemp)
+    cat >"$unit_tmp" <<EOF_ADDRESS_UNIT
+[Unit]
+Description=infra-scripts node-local service address
+Before=systemd-resolved.service k3s.service k3s-agent.service
+
+[Service]
+Type=oneshot
+ExecStart=$address_script
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF_ADDRESS_UNIT
+    run_root install -m 0644 "$unit_tmp" "$address_service"
+    rm -f "$unit_tmp"
+
+    resolved_tmp=$(mktemp)
+    cat >"$resolved_tmp" <<'EOF_RESOLVED_UNIT'
+[Unit]
+Requires=infra-node-local-address.service
+After=infra-node-local-address.service
+EOF_RESOLVED_UNIT
+    run_root install -D -m 0644 "$resolved_tmp" "$resolved_dropin"
+    rm -f "$resolved_tmp"
+
+    listener_tmp=$(mktemp)
+    cat >"$listener_tmp" <<EOF_LISTENER
+[Resolve]
+DNSStubListenerExtra=$pod_dns_ip
+EOF_LISTENER
+    run_root install -D -m 0644 "$listener_tmp" "$listener_conf"
+    rm -f "$listener_tmp"
+
+    run_root systemctl daemon-reload
+    run_root systemctl reenable infra-node-local-address.service >/dev/null
+    run_root systemctl restart infra-node-local-address.service
+    run_root systemctl restart systemd-resolved.service
+
+    if ! ip -4 addr show dev lo | grep -Fq " $pod_dns_ip/32 "; then
+        echo "Error: node-local DNS address was not added to loopback." >&2
+        return 1
+    fi
+
+    if ! ss -H -lntu | grep -Fq "$pod_dns_ip:53"; then
+        echo "Error: systemd-resolved is not listening on $pod_dns_ip:53." >&2
+        return 1
+    fi
+
+    echo "Pod system DNS enabled at $pod_dns_ip:53."
+}

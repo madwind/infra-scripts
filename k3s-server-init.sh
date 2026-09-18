@@ -34,6 +34,7 @@ fi
 # -----host setup-----
 enable_bbr
 setup_systemd_resolved_dot
+setup_pod_system_dns
 setup_iptables_firewall server
 
 # -----uninstall previous k3s-----
