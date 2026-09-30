@@ -33,6 +33,7 @@ fi
 
 # -----host setup-----
 enable_bbr
+enable_unattended_upgrades
 setup_systemd_resolved_dot
 setup_pod_system_dns
 setup_iptables_firewall server
