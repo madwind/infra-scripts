@@ -24,7 +24,8 @@ fi
 
 run_root rm -f \
     /etc/modules-load.d/ipvs.conf \
-    /etc/resolv.conf.before-systemd-resolved
+    /etc/resolv.conf.before-systemd-resolved \
+    /etc/systemd/resolved.conf.d/dot.conf
 
 # Remove the node-local address used to expose systemd-resolved to Pods.
 if systemctl list-unit-files infra-node-local-address.service >/dev/null 2>&1; then
