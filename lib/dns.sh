@@ -25,6 +25,7 @@ setup_systemd_resolved_doh() (
     proxy_bin=/usr/sbin/dnscrypt-proxy
     proxy_conf=/etc/infra-scripts/dnscrypt-proxy.toml
     proxy_unit_conf=/etc/systemd/system/dnscrypt-proxy.service.d/infra-scripts.conf
+    proxy_resolvconf_unit_conf=/etc/systemd/system/dnscrypt-proxy-resolvconf.service.d/infra-scripts.conf
     resolved_conf=/etc/systemd/resolved.conf.d/infra-system-dns.conf
 
     if ! command -v resolvectl >/dev/null 2>&1; then
@@ -35,17 +36,8 @@ setup_systemd_resolved_doh() (
     run_root systemctl unmask systemd-resolved.service >/dev/null 2>&1 || true
     run_root systemctl enable --now systemd-resolved.service
 
-    # The script manages resolved explicitly. Prevent the package's resolvconf
-    # integration from changing DNS when apt starts the proxy.
-    run_root systemctl mask dnscrypt-proxy-resolvconf.service
     if systemctl is-active --quiet dnscrypt-proxy-resolvconf.service; then
         run_root systemctl stop dnscrypt-proxy-resolvconf.service
-    fi
-    if [ ! -x "$proxy_bin" ]; then
-        _install_package dnscrypt-proxy
-    fi
-    if ! command -v dig >/dev/null 2>&1; then
-        _install_package bind9-dnsutils
     fi
 
     cat >"$dns_tmp/proxy.toml" <<'EOF_PROXY'
@@ -59,7 +51,6 @@ doh_servers = true
 # 1.1.1.1:443, TLS name cloudflare-dns.com, path /dns-query.
 stamp = 'sdns://AgcAAAAAAAAABzEuMS4xLjEAEmNsb3VkZmxhcmUtZG5zLmNvbQovZG5zLXF1ZXJ5'
 EOF_PROXY
-    "$proxy_bin" -config "$dns_tmp/proxy.toml" -check
     run_root install -D -m 0644 "$dns_tmp/proxy.toml" "$proxy_conf"
 
     cat >"$dns_tmp/proxy-unit.conf" <<EOF_PROXY_UNIT
@@ -68,7 +59,25 @@ ExecStart=
 ExecStart=$proxy_bin -config $proxy_conf
 EOF_PROXY_UNIT
     run_root install -D -m 0644 "$dns_tmp/proxy-unit.conf" "$proxy_unit_conf"
+
+    # Let apt preset the helper normally, but skip its resolvconf integration
+    # while infra-scripts manages the resolver.
+    cat >"$dns_tmp/proxy-resolvconf-unit.conf" <<EOF_PROXY_RESOLVCONF_UNIT
+[Unit]
+ConditionPathExists=!$proxy_conf
+EOF_PROXY_RESOLVCONF_UNIT
+    run_root install -D -m 0644 "$dns_tmp/proxy-resolvconf-unit.conf" "$proxy_resolvconf_unit_conf"
+    run_root systemctl unmask dnscrypt-proxy-resolvconf.service
     run_root systemctl daemon-reload
+
+    if [ ! -x "$proxy_bin" ]; then
+        _install_package dnscrypt-proxy
+    fi
+    "$proxy_bin" -config "$proxy_conf" -check
+    if ! command -v dig >/dev/null 2>&1; then
+        _install_package bind9-dnsutils
+    fi
+
     run_root systemctl enable --now dnscrypt-proxy.socket
     run_root systemctl restart dnscrypt-proxy.service
 
