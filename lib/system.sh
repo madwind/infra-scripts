@@ -28,21 +28,20 @@ enable_unattended_upgrades() {
         fi
     fi
 
-    unattended_value=$(apt-config shell value APT::Periodic::Unattended-Upgrade 2>/dev/null \
-        | sed -n "s/^value='\\(.*\\)'$/\\1/p" || true)
-    update_lists_value=$(apt-config shell value APT::Periodic::Update-Package-Lists 2>/dev/null \
-        | sed -n "s/^value='\\(.*\\)'$/\\1/p" || true)
-
-    if [ "$unattended_value" != "1" ] || [ "$update_lists_value" != "1" ]; then
-        auto_upgrade_tmp=$(mktemp)
-        cat >"$auto_upgrade_tmp" <<'EOF_AUTO_UPGRADES'
+    # Convert 05:00 UTC+8 to the host's local time without changing its timezone.
+    # Re-run this setup after a DST offset change on hosts that observe DST.
+    reboot_time=$(env -u TZ date -d 'TZ="Asia/Shanghai" tomorrow 05:00' +%H:%M)
+    auto_upgrade_tmp=$(mktemp)
+    cat >"$auto_upgrade_tmp" <<EOF_AUTO_UPGRADES
 APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Unattended-Upgrade "1";
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-WithUsers "false";
+Unattended-Upgrade::Automatic-Reboot-Time "$reboot_time";
 EOF_AUTO_UPGRADES
-        run_root install -m 0644 "$auto_upgrade_tmp" /etc/apt/apt.conf.d/99infra-unattended-upgrades
-        rm -f "$auto_upgrade_tmp"
-    fi
+    run_root install -m 0644 "$auto_upgrade_tmp" /etc/apt/apt.conf.d/99infra-unattended-upgrades
+    rm -f "$auto_upgrade_tmp"
 
     run_root systemctl enable --now apt-daily.timer apt-daily-upgrade.timer >/dev/null
-    echo "unattended-upgrades enabled."
+    echo "unattended-upgrades enabled; automatic reboot at $reboot_time local time (05:00 UTC+8)."
 }
